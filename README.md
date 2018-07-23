@@ -1,1 +1,1 @@
-# semantic-image-inpainting
+# Semantic Image Inpainting TensorFlow
