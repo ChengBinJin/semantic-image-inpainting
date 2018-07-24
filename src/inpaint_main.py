@@ -6,9 +6,7 @@
 # ---------------------------------------------------------
 import os
 import tensorflow as tf
-import cv2
 
-from gen_mask import gen_mask
 from inpaint_solver import Solver
 
 FLAGS = tf.flags.FLAGS
@@ -34,13 +32,6 @@ tf.flags.DEFINE_string('load_model', None,
 
 def main(_):
     os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_index
-
-    masks = gen_mask(FLAGS)
-    for idx in range(masks.shape[0]):
-        print('idx: {}'.format(idx))
-        img = masks[idx]
-        cv2.imshow('Mask', img)
-        cv2.waitKey(0)
 
     solver = Solver(FLAGS)
     solver.test()

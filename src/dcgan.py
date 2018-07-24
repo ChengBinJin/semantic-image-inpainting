@@ -65,8 +65,11 @@ class DCGAN(object):
 
         self.summary_op = tf.summary.merge_all()
 
-    def generator(self, data, name='g_'):
-        with tf.variable_scope(name):
+    def generator(self, data, name='g_', is_reuse=False):
+        with tf.variable_scope(name) as scope:
+            if is_reuse is True:
+                scope.reuse_variables()
+
             data_flatten = flatten(data)
 
             # 4 x 4

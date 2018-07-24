@@ -5,11 +5,13 @@
 # Email: sbkim0407@gmail.com
 # ---------------------------------------------------------
 import os
-import time
+# import time
 import tensorflow as tf
 
 # from dcgan import DCGAN
-import tensorflow_utils as tf_utils
+# from mask_generator import gen_mask
+from inpaint_model import ModelInpaint
+# import tensorflow_utils as tf_utils
 
 
 class Solver(object):
@@ -27,7 +29,7 @@ class Solver(object):
         self.saver = tf.train.Saver()
         self.sess.run(tf.global_variables_initializer())
 
-        tf_utils.show_all_variables()
+        # tf_utils.show_all_variables()
 
     def _make_folders(self):
         self.model_out_dir = "{}/model/{}".format(self.flags.dataset, self.flags.load_model)
@@ -41,16 +43,18 @@ class Solver(object):
         else:
             print(' [!] Load Failed...')
 
-        num_iters = 10
-        total_time = 0.
-        for iter_time in range(num_iters):
-            # measure inference time
-            start_time = time.time()
-            imgs = self.model.sample_imgs()  # inference
-            total_time += time.time() - start_time
-            self.model.plots(imgs, iter_time, self.test_out_dir)
-
-        print('Avg PT: {:.2f} msec.'.format(total_time / num_iters * 1000.))
+        # num_iters = 10
+        # total_time = 0.
+        # for iter_time in range(num_iters):
+        #     masks = gen_mask(self.flags)
+        #
+        #     # measure inference time
+        #     start_time = time.time()
+        #     imgs = self.model.sample_imgs()  # inference
+        #     total_time += time.time() - start_time
+        #     self.model.plots(imgs, iter_time, self.test_out_dir)
+        #
+        # print('Avg PT: {:.2f} msec.'.format(total_time / num_iters * 1000.))
 
     def load_model(self):
         print(' [*] Reading checkpoint...')
