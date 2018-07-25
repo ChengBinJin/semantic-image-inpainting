@@ -62,7 +62,7 @@ class DCGAN(object):
         self.gen_optim = tf.group(*gen_ops)
 
     def _tensorboard(self):
-        tf.summary.scalar('loss/d_loss', self.d_loss)
+        # tf.summary.scalar('loss/d_loss', self.d_loss)
         tf.summary.scalar('loss/g_loss', self.g_loss)
 
         self.summary_op = tf.summary.merge_all()

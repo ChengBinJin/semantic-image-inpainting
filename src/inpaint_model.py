@@ -17,6 +17,7 @@ class ModelInpaint(object):
         self.sess = sess
         self.flags = flags
         self.image_size = (flags.img_size, flags.img_size, 3)
+        self.learning_rate = self.flags.learning_rate
 
         self.z_vectors = np.random.randn(self.flags.sample_batch, self.flags.z_dim)
         self.dcgan = DCGAN(sess, Flags(flags), self.image_size)
@@ -27,7 +28,7 @@ class ModelInpaint(object):
         self._preprocess(use_weighted_mask=True)
         self._tensorboard()
 
-        print('Hello ModelInpaint Class!')
+        print('Initialized Model Inpaint SUCCESS!')
 
     def _build_net(self):
         self.wmasks_ph = tf.placeholder(tf.float32, [None, *self.image_size], name='wmasks')
@@ -40,10 +41,8 @@ class ModelInpaint(object):
 
         self.grad = tf.gradients(self.total_loss, self.dcgan.z)
 
-        print('Hello _build_net!')
-
     def _preprocess(self, use_weighted_mask=True, nsize=7):
-        if use_weighted_mask:
+        if use_weighted_mask is True:
             wmasks = self.create_weighted_mask(self.masks, nsize)
         else:
             wmasks = self.masks
@@ -58,7 +57,7 @@ class ModelInpaint(object):
 
         self.summary_op = tf.summary.merge_all()
 
-    def __call__(self, imgs):
+    def __call__(self, imgs, iter_time):
         feed_dict = {self.dcgan.z: self.z_vectors,
                      self.wmasks_ph: self.wmasks,
                      self.images_ph: imgs}
@@ -67,18 +66,23 @@ class ModelInpaint(object):
 
         context_loss, prior_loss, total_loss, grad, img_out, summary = self.sess.run(out_vars, feed_dict=feed_dict)
 
+        # learning rate control
+        if np.mod(iter_time, 100) == 0:
+            self.learning_rate *= 0.95
+
         # Nesterov Acceleratd Gradient (NAG)
         v_prev = np.copy(self.velocity)
-        self.velocity = self.flags.momentum * self.velocity - self.flags.learning_rate * grad[0]
+        self.velocity = self.flags.momentum * self.velocity - self.learning_rate * grad[0]
         self.z_vectors += -self.flags.momentum * v_prev + (1 + self.flags.momentum) * self.velocity
         self.z_vectors = np.clip(self.z_vectors, -1., 1.)  # as paper mentioned
 
         return [context_loss, prior_loss, total_loss], img_out, summary
 
-    def print_info(self, loss, iter_time):
+    def print_info(self, loss, iter_time, num_try):
         if np.mod(iter_time, self.flags.print_freq) == 0:
-            ord_output = collections.OrderedDict([('cur_iter', iter_time), ('tar_iters', self.flags.iters),
-                                                  ('batch_size', self.flags.batch_size),
+            ord_output = collections.OrderedDict([('num_try', num_try), ('tar_try', self.flags.num_try),
+                                                  ('cur_iter', iter_time), ('tar_iters', self.flags.iters),
+                                                  ('batch_size', self.flags.sample_batch),
                                                   ('context_loss', np.mean(loss[0])),
                                                   ('prior_loss', np.mean(loss[1])),
                                                   ('total_loss', np.mean(loss[2])),
@@ -110,34 +114,35 @@ class ModelInpaint(object):
 
         return masks_3c
 
-    def plots(self, img_list, save_file):
+    def plots(self, img_list, save_file, num_try):
         n_cols = len(img_list)
-        n_rows = num_imgs = self.flags.sample_batch
+        n_rows = self.flags.sample_batch
 
         # parameters for plot size
-        scale, margin = 0.04, 0.01
+        scale, margin = 0.04, 0.001
         cell_size_h, cell_size_w = img_list[0][0].shape[0] * scale, img_list[0][0].shape[1] * scale
         fig = plt.figure(figsize=(cell_size_w * n_cols, cell_size_h * n_rows))  # (column, row)
         gs = gridspec.GridSpec(n_rows, n_cols)  # (row, column)
         gs.update(wspace=margin, hspace=margin)
 
-        # imgs = [utils.inverse_transform(imgs[idx]) for idx in range(len(imgs))]
-
         # save more bigger image
-        for img_idx in range(num_imgs):
-            for col_index in range(n_cols):
-                for row_index in range(n_rows):
-                    ax = plt.subplot(gs[row_index * n_cols + col_index])
-                    plt.axis('off')
-                    ax.set_xticklabels([])
-                    ax.set_yticklabels([])
-                    ax.set_aspect('equal')
+        for col_index in range(n_cols):
+            for row_index in range(n_rows):
+                ax = plt.subplot(gs[row_index * n_cols + col_index])
+                plt.axis('off')
+                ax.set_xticklabels([])
+                ax.set_yticklabels([])
+                ax.set_aspect('equal')
 
-                    plt.imshow(utils.inverse_transform((img_list[row_index][img_idx])).reshape(
+                if col_index == 0:  # original input image
+                    plt.imshow((img_list[col_index][row_index] * self.masks[row_index]).reshape(
+                        self.image_size[0], self.image_size[1], self.image_size[2]), cmap='Greys_r')
+                else:
+                    plt.imshow((img_list[col_index][row_index]).reshape(
                         self.image_size[0], self.image_size[1], self.image_size[2]), cmap='Greys_r')
 
-            plt.savefig(save_file + '/test_{}.png'.format(str(img_idx)), bbox_inches='tight')
-            plt.close(fig)
+        plt.savefig(save_file + '/{}_{}.png'.format(self.flags.mask_type, num_try), bbox_inches='tight')
+        plt.close(fig)
 
 
 class Flags(object):
@@ -145,9 +150,4 @@ class Flags(object):
         self.z_dim = flags.z_dim
         self.learning_rate = flags.learning_rate
         self.beta1 = flags.momentum
-        # self.batch_size = 256
         self.sample_batch = flags.sample_batch
-        # self.print_freq = flags.print_freq
-        # self.iters = flags.iters
-        # self.dataset = flags.dataset
-        # self.gpu_index = flags.gpu_index

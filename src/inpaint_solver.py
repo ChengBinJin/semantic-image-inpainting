@@ -11,7 +11,8 @@ import tensorflow as tf
 
 from dataset import Dataset
 from inpaint_model import ModelInpaint
-# import tensorflow_utils as tf_utils
+import poissonblending as poisson
+import utils as utils
 
 
 class Solver(object):
@@ -25,20 +26,19 @@ class Solver(object):
         self.model = ModelInpaint(self.sess, self.flags)
 
         self._make_folders()
-        self.img_list = []
+        self.iter_time = 0
 
         self.saver = tf.train.Saver()
         self.sess.run(tf.global_variables_initializer())
 
-        # tf_utils.show_all_variables()
-
     def _make_folders(self):
         self.model_out_dir = "{}/model/{}".format(self.flags.dataset, self.flags.load_model)
-        self.test_out_dir = "{}/test/{}".format(self.flags.dataset, self.flags.load_model)
+        self.test_out_dir = "{}/inpaint/{}/is_blend_{}".format(self.flags.dataset, self.flags.load_model,
+                                                               str(self.flags.is_blend))
         if not os.path.isdir(self.test_out_dir):
             os.makedirs(self.test_out_dir)
 
-        self.train_writer = tf.summary.FileWriter("{}/logs/{}".format(self.flags.dataset, self.flags.load_model),
+        self.train_writer = tf.summary.FileWriter("{}/inpaint/{}/log".format(self.flags.dataset, self.flags.load_model),
                                                   graph_def=self.sess.graph_def)
 
     def test(self):
@@ -47,27 +47,45 @@ class Solver(object):
         else:
             print(' [!] Load Failed...')
 
-        imgs = self.dataset.val_next_batch(batch_size=self.flags.sample_batch)
-        self.img_list.append(imgs * self.model.masks)  # save masked images
+        for num_try in range(self.flags.num_try):
+            self.model.learning_rate = self.flags.learning_rate  # initialize learning rate
+            imgs = self.dataset.val_next_batch(batch_size=self.flags.sample_batch)
+            img_list = []
+            img_list.append((imgs + 1.) / 2.)  # save masked images
 
-        start_time = time.time()  # measure inference time
-        for iter_time in range(self.flags.iters):
-            loss, img_out, summary = self.model(imgs)  # inference
-            self.sample(iter_time, img_out)  # save interval results
+            start_time = time.time()  # measure inference time
+            for iter_time in range(self.flags.iters):
+                loss, img_outs, summary = self.model(imgs, iter_time)  # inference
+                blend_results = self.postprocess(imgs, img_outs, self.flags.is_blend)  # blending
+                self.sample(img_list, iter_time, blend_results)  # save interval results
 
-            self.model.print_info(loss, iter_time)  # pring loss information
-            self.train_writer.add_summary(summary, iter_time)  # write to tensorboard
-            self.train_writer.flush()
+                self.model.print_info(loss, iter_time, num_try)  # pring loss information
+                self.train_writer.add_summary(summary, iter_time)  # write to tensorboard
+                self.train_writer.flush()
 
-        total_time = time.time() - start_time
-        print('Total PT: {:.2f} msec.'.format(total_time * 1000.))
+            total_time = time.time() - start_time
+            print('Total PT: {:.3f} sec.'.format(total_time))
 
-        self.img_list.append(imgs)  # save GT images
-        self.model.plots(self.img_list, self.test_out_dir)  # save all of the images
+            img_list.append((imgs + 1.) / 2.)  # save GT images
+            self.model.plots(img_list, self.test_out_dir, num_try)  # save all of the images
 
-    def sample(self, iter_time, img_out):
+    def sample(self, img_list, iter_time, img_out):
         if np.mod(iter_time, self.flags.sample_freq) == 0:
-            self.img_list.append(img_out)
+            img_list.append(img_out)
+
+    def postprocess(self, ori_imgs, gen_imgs, is_blend=True):
+        outputs = np.zeros_like(ori_imgs)
+        tar_imgs = np.asarray([utils.inverse_transform(img) for img in ori_imgs])
+        sour_imgs = np.asarray([utils.inverse_transform(img) for img in gen_imgs])
+
+        if is_blend is True:
+            for idx in range(tar_imgs.shape[0]):
+                outputs[idx] = poisson.blend(tar_imgs[idx], sour_imgs[idx],
+                                             ((1. - self.model.masks[idx]) * 255.).astype(np.uint8))
+        else:
+            outputs = np.multiply(tar_imgs, self.model.masks) + np.multiply(sour_imgs, 1. - self.model.masks)
+
+        return outputs
 
     def load_model(self):
         print(' [*] Reading checkpoint...')
