@@ -67,5 +67,5 @@ def pattern_mask(img_size):
 
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
-    return mask
+    return 1. - mask
 

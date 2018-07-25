@@ -44,6 +44,8 @@ class DCGAN(object):
         # generator loss
         self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
             logits=d_logit_fake, labels=tf.ones_like(d_logit_fake)))
+        self.g_loss_without_mean = tf.nn.sigmoid_cross_entropy_with_logits(
+            logits=d_logit_fake, labels=tf.ones_like(d_logit_fake))
 
         d_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='d_')
         g_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='g_')
