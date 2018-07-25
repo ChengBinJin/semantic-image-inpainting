@@ -1,8 +1,13 @@
-import cv2
+import collections
 import numpy as np
 import tensorflow as tf
 from scipy.signal import convolve2d
+import matplotlib as mpl
+mpl.use('TkAgg')  # or whatever other backend that you want to solve Segmentation fault (core dumped)
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 
+import utils as utils
 from dcgan import DCGAN
 from mask_generator import gen_mask
 
@@ -13,25 +18,27 @@ class ModelInpaint(object):
         self.flags = flags
         self.image_size = (flags.img_size, flags.img_size, 3)
 
+        self.z_vectors = np.random.randn(self.flags.sample_batch, self.flags.z_dim)
         self.dcgan = DCGAN(sess, Flags(flags), self.image_size)
-        self.nsize = 7  # neighboring for distance for weighted mask
         self.masks = gen_mask(self.flags)
+        self.velocity = 0.  # for latent vector optimization
 
         self._build_net()
         self._preprocess(use_weighted_mask=True)
+        self._tensorboard()
 
         print('Hello ModelInpaint Class!')
 
     def _build_net(self):
-        # self.wmasks_ph = tf.placeholder(tf.float32, [None, *self.image_size], name='wmasks')
-        # self.images_ph = tf.placeholder(tf.float32, [None, *self.image_size], name='images')
-        #
-        # self.context_loss = tf.reduce_sum(tf.contrib.layers.flatten(
-        #     tf.abs(tf.multiply(self.wmasks_ph, self.dcgan.g_samples) - tf.multiply(self.wmasks_ph, self.images_ph))), 1)
-        # self.prior_loss = self.flags.lamb * self.dcgan.g_loss_without_mean
-        # self.total_loss = self.context_loss + self.prior_loss
-        #
-        # self.grad_op = tf.gradients(self.total_loss, self.dcgan.z)
+        self.wmasks_ph = tf.placeholder(tf.float32, [None, *self.image_size], name='wmasks')
+        self.images_ph = tf.placeholder(tf.float32, [None, *self.image_size], name='images')
+
+        self.context_loss = tf.reduce_sum(tf.contrib.layers.flatten(
+            tf.abs(tf.multiply(self.wmasks_ph, self.dcgan.g_samples) - tf.multiply(self.wmasks_ph, self.images_ph))), 1)
+        self.prior_loss = self.flags.lamb * self.dcgan.g_loss_without_mean
+        self.total_loss = self.context_loss + self.prior_loss
+
+        self.grad = tf.gradients(self.total_loss, self.dcgan.z)
 
         print('Hello _build_net!')
 
@@ -43,6 +50,41 @@ class ModelInpaint(object):
 
         self.wmasks = self.create3_channel_masks(wmasks)
         self.masks = self.create3_channel_masks(self.masks)
+
+    def _tensorboard(self):
+        tf.summary.scalar('loss/context_loss', tf.reduce_mean(self.context_loss))
+        tf.summary.scalar('loss/prior_loss', tf.reduce_mean(self.prior_loss))
+        tf.summary.scalar('loss/total_loss', tf.reduce_mean(self.total_loss))
+
+        self.summary_op = tf.summary.merge_all()
+
+    def __call__(self, imgs):
+        feed_dict = {self.dcgan.z: self.z_vectors,
+                     self.wmasks_ph: self.wmasks,
+                     self.images_ph: imgs}
+        out_vars = [self.context_loss, self.prior_loss, self.total_loss, self.grad, self.dcgan.g_samples,
+                    self.summary_op]
+
+        context_loss, prior_loss, total_loss, grad, img_out, summary = self.sess.run(out_vars, feed_dict=feed_dict)
+
+        # Nesterov Acceleratd Gradient (NAG)
+        v_prev = np.copy(self.velocity)
+        self.velocity = self.flags.momentum * self.velocity - self.flags.learning_rate * grad[0]
+        self.z_vectors += -self.flags.momentum * v_prev + (1 + self.flags.momentum) * self.velocity
+        self.z_vectors = np.clip(self.z_vectors, -1., 1.)  # as paper mentioned
+
+        return [context_loss, prior_loss, total_loss], img_out, summary
+
+    def print_info(self, loss, iter_time):
+        if np.mod(iter_time, self.flags.print_freq) == 0:
+            ord_output = collections.OrderedDict([('cur_iter', iter_time), ('tar_iters', self.flags.iters),
+                                                  ('batch_size', self.flags.batch_size),
+                                                  ('context_loss', np.mean(loss[0])),
+                                                  ('prior_loss', np.mean(loss[1])),
+                                                  ('total_loss', np.mean(loss[2])),
+                                                  ('gpu_index', self.flags.gpu_index)])
+
+            utils.print_metrics(iter_time, ord_output)
 
     @staticmethod
     def create_weighted_mask(masks, nsize):
@@ -58,16 +100,6 @@ class ModelInpaint(object):
 
         return wmasks
 
-    def check_masks(self):
-        masks = gen_mask(self.flags)
-
-        for idx in range(masks.shape[0]):
-            print('idx: {}'.format(idx))
-            mask = masks[idx]
-
-            cv2.imshow('Mask', mask)
-            cv2.waitKey(0)
-
     @staticmethod
     def create3_channel_masks(masks):
         masks_3c = np.zeros((*masks.shape, 3), dtype=np.float32)
@@ -78,6 +110,35 @@ class ModelInpaint(object):
 
         return masks_3c
 
+    def plots(self, img_list, save_file):
+        n_cols = len(img_list)
+        n_rows = num_imgs = self.flags.sample_batch
+
+        # parameters for plot size
+        scale, margin = 0.04, 0.01
+        cell_size_h, cell_size_w = img_list[0][0].shape[0] * scale, img_list[0][0].shape[1] * scale
+        fig = plt.figure(figsize=(cell_size_w * n_cols, cell_size_h * n_rows))  # (column, row)
+        gs = gridspec.GridSpec(n_rows, n_cols)  # (row, column)
+        gs.update(wspace=margin, hspace=margin)
+
+        # imgs = [utils.inverse_transform(imgs[idx]) for idx in range(len(imgs))]
+
+        # save more bigger image
+        for img_idx in range(num_imgs):
+            for col_index in range(n_cols):
+                for row_index in range(n_rows):
+                    ax = plt.subplot(gs[row_index * n_cols + col_index])
+                    plt.axis('off')
+                    ax.set_xticklabels([])
+                    ax.set_yticklabels([])
+                    ax.set_aspect('equal')
+
+                    plt.imshow(utils.inverse_transform((img_list[row_index][img_idx])).reshape(
+                        self.image_size[0], self.image_size[1], self.image_size[2]), cmap='Greys_r')
+
+            plt.savefig(save_file + '/test_{}.png'.format(str(img_idx)), bbox_inches='tight')
+            plt.close(fig)
+
 
 class Flags(object):
     def __init__(self, flags):
@@ -85,7 +146,7 @@ class Flags(object):
         self.learning_rate = flags.learning_rate
         self.beta1 = flags.momentum
         # self.batch_size = 256
-        # self.sample_batch = flags.sample_batch
+        self.sample_batch = flags.sample_batch
         # self.print_freq = flags.print_freq
         # self.iters = flags.iters
         # self.dataset = flags.dataset
