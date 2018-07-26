@@ -133,6 +133,22 @@ python inpaint_main.py --dataset=celebA \
 - `sample_batch`: number of sampling images, default: `2`
 - `load_model`: saved DCGAN model that you with to test, (e.g. 20180705-1736), default: `None`
 
+### Loss for Optimizing Latent Vector
+- Content Loss
+<p align='center'>
+<img src="https://user-images.githubusercontent.com/37034031/43247920-201307b8-90f1-11e8-8b22-8ecb3ebc734d.png", width=800>
+</p>
+
+- Prior Loss
+<p align='center'>
+<img src="https://user-images.githubusercontent.com/37034031/43247983-560194d4-90f1-11e8-9d8f-a7435cb21885.png", width=800>
+</p>
+
+- Total Loss
+<p align='center'>
+<img src="https://user-images.githubusercontent.com/37034031/43247998-677ea8c8-90f1-11e8-9564-12ffa3117b9b.png", width=800>
+</p>
+
 ### Citation
 ```
   @misc{chengbinjin2018semantic-image-inpainting,
