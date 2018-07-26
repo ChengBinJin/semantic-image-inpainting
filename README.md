@@ -17,14 +17,14 @@ This repository is a Tensorflow implementation of the [Semantic Image Inpainting
 
 ## Semantic Image Inpainting
 1. **celebA**  
-- Note: The folowing resutls are cherry-picked images
+- Note: The following resutls are cherry-picked images
 
 <p align='center'>
 <img src="https://user-images.githubusercontent.com/37034031/43244581-48360a66-90e6-11e8-823c-a71d957ed73b.png">
 </p>
 
 2. **SVHN**  
-- Note: The folowing resutls are cherry-picked images
+- Note: The following resutls are cherry-picked images
 
 <p align='center'>
 <img src="https://user-images.githubusercontent.com/37034031/43244654-98d56cdc-90e6-11e8-8f0f-4695d3d3ebe4.png">
