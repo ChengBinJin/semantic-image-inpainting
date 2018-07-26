@@ -1,8 +1,10 @@
 import numpy as np
 import cv2
+import time
 
 
 def gen_mask(flags):
+    np.random.seed(seed=int(time.time()))  # set random seed according to the current time
     masks = np.ones((flags.sample_batch, flags.img_size, flags.img_size), dtype=np.float32)
 
     if flags.mask_type == 'center':

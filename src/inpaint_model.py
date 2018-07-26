@@ -17,15 +17,12 @@ class ModelInpaint(object):
         self.sess = sess
         self.flags = flags
         self.image_size = (flags.img_size, flags.img_size, 3)
-        self.learning_rate = self.flags.learning_rate
 
-        self.z_vectors = np.random.randn(self.flags.sample_batch, self.flags.z_dim)
+        self.z_vectors, self.learning_rate, self.velocity = None, None, None
+        self.masks, self.wmasks = None, None
+
         self.dcgan = DCGAN(sess, Flags(flags), self.image_size)
-        self.masks = gen_mask(self.flags)
-        self.velocity = 0.  # for latent vector optimization
-
         self._build_net()
-        self._preprocess(use_weighted_mask=True)
         self._tensorboard()
 
         print('Initialized Model Inpaint SUCCESS!')
@@ -36,12 +33,17 @@ class ModelInpaint(object):
 
         self.context_loss = tf.reduce_sum(tf.contrib.layers.flatten(
             tf.abs(tf.multiply(self.wmasks_ph, self.dcgan.g_samples) - tf.multiply(self.wmasks_ph, self.images_ph))), 1)
-        self.prior_loss = self.flags.lamb * self.dcgan.g_loss_without_mean
+        self.prior_loss = tf.squeeze(self.flags.lamb * self.dcgan.g_loss_without_mean)  # from (2, 1) to (2,)
         self.total_loss = self.context_loss + self.prior_loss
 
         self.grad = tf.gradients(self.total_loss, self.dcgan.z)
 
-    def _preprocess(self, use_weighted_mask=True, nsize=7):
+    def preprocess(self, use_weighted_mask=True, nsize=7):
+        self.z_vectors = np.random.randn(self.flags.sample_batch, self.flags.z_dim)
+        self.masks = gen_mask(self.flags)
+        self.learning_rate = self.flags.learning_rate
+        self.velocity = 0.  # for latent vector optimization
+
         if use_weighted_mask is True:
             wmasks = self.create_weighted_mask(self.masks, nsize)
         else:
@@ -86,6 +88,7 @@ class ModelInpaint(object):
                                                   ('context_loss', np.mean(loss[0])),
                                                   ('prior_loss', np.mean(loss[1])),
                                                   ('total_loss', np.mean(loss[2])),
+                                                  ('mask_type', self.flags.mask_type),
                                                   ('gpu_index', self.flags.gpu_index)])
 
             utils.print_metrics(iter_time, ord_output)

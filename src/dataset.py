@@ -5,6 +5,7 @@
 # Email: sbkim0407@gmail.com
 # ---------------------------------------------------------
 import os
+import time
 import numpy as np
 import scipy.io
 import scipy.misc
@@ -23,6 +24,8 @@ class CelebA(object):
         self.celeba_train_path = os.path.join('../../Data', self.dataset_name, 'train')
         self.celeba_val_path = os.path.join('../../Data', self.dataset_name, 'val')
         self._load_celeba()
+
+        np.random.seed(seed=int(time.time()))  # set random seed according to the current time
 
     def _load_celeba(self):
         print('Load {} dataset...'.format(self.dataset_name))
@@ -58,6 +61,8 @@ class SVHN(object):
         self.svhn_val_path = os.path.join('../../Data', self.dataset_name, 'test_32x32.mat')
         self._load_svhn()
 
+        np.random.seed(seed=int(time.time()))  # set random seed according to the current time
+
     def _load_svhn(self):
         print('Load {} dataset...'.format(self.dataset_name))
 
@@ -84,9 +89,8 @@ class SVHN(object):
         batch_imgs = self.val_data[batch_indexs]
 
         # resize (32, 32, 3) to (64, 64, 3)
-        batch_imgs_ = [utils.random_flip(
-            utils.transform(scipy.misc.imresize(batch_imgs[idx], (self.image_size[0], self.image_size[1]))))
-            for idx in range(batch_imgs.shape[0])]
+        batch_imgs_ = [utils.transform(scipy.misc.imresize(batch_imgs[idx], (self.image_size[0], self.image_size[1])))
+                       for idx in range(batch_imgs.shape[0])]
 
         return np.asarray(batch_imgs_)
 

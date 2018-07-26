@@ -38,8 +38,9 @@ class Solver(object):
         if not os.path.isdir(self.test_out_dir):
             os.makedirs(self.test_out_dir)
 
-        self.train_writer = tf.summary.FileWriter("{}/inpaint/{}/log".format(self.flags.dataset, self.flags.load_model),
-                                                  graph_def=self.sess.graph_def)
+        self.train_writer = tf.summary.FileWriter("{}/inpaint/{}/is_blend_{}/{}/log".format(
+            self.flags.dataset, self.flags.load_model, str(self.flags.is_blend), self.flags.mask_type),
+            graph_def=self.sess.graph_def)
 
     def test(self):
         if self.load_model():
@@ -48,40 +49,45 @@ class Solver(object):
             print(' [!] Load Failed...')
 
         for num_try in range(self.flags.num_try):
-            self.model.learning_rate = self.flags.learning_rate  # initialize learning rate
-            imgs = self.dataset.val_next_batch(batch_size=self.flags.sample_batch)
-            img_list = []
-            img_list.append((imgs + 1.) / 2.)  # save masked images
+            self.model.preprocess()  # initialize memory for inpaint model
+
+            imgs = self.dataset.val_next_batch(batch_size=self.flags.sample_batch)  # random select in validation data
+            best_loss = np.ones(self.flags.sample_batch) * 1e10
+            best_outs = np.zeros_like(imgs)
 
             start_time = time.time()  # measure inference time
             for iter_time in range(self.flags.iters):
                 loss, img_outs, summary = self.model(imgs, iter_time)  # inference
-                blend_results = self.postprocess(imgs, img_outs, self.flags.is_blend)  # blending
-                self.sample(img_list, iter_time, blend_results)  # save interval results
+
+                # save best gen_results accroding to the total loss
+                for iter_loss in range(self.flags.sample_batch):
+                    if best_loss[iter_loss] > loss[2][iter_loss]:  # total loss
+                        best_loss[iter_loss] = loss[2][iter_loss]
+                        best_outs[iter_loss] = img_outs[iter_loss]
 
                 self.model.print_info(loss, iter_time, num_try)  # pring loss information
-                self.train_writer.add_summary(summary, iter_time)  # write to tensorboard
-                self.train_writer.flush()
+
+                if num_try == 0:  # save first try-information on the tensorboard only
+                    self.train_writer.add_summary(summary, iter_time)  # write to tensorboard
+                    self.train_writer.flush()
+
+            blend_results = self.postprocess(imgs, best_outs, self.flags.is_blend)  # blending
 
             total_time = time.time() - start_time
             print('Total PT: {:.3f} sec.'.format(total_time))
 
-            img_list.append((imgs + 1.) / 2.)  # save GT images
+            img_list = [(imgs + 1.) / 2., blend_results, (imgs + 1.) / 2.]
             self.model.plots(img_list, self.test_out_dir, num_try)  # save all of the images
-
-    def sample(self, img_list, iter_time, img_out):
-        if np.mod(iter_time, self.flags.sample_freq) == 0:
-            img_list.append(img_out)
 
     def postprocess(self, ori_imgs, gen_imgs, is_blend=True):
         outputs = np.zeros_like(ori_imgs)
-        tar_imgs = np.asarray([utils.inverse_transform(img) for img in ori_imgs])
-        sour_imgs = np.asarray([utils.inverse_transform(img) for img in gen_imgs])
+        tar_imgs = np.asarray([utils.inverse_transform(img) for img in ori_imgs])  # from (-1, 1) to (0, 1)
+        sour_imgs = np.asarray([utils.inverse_transform(img) for img in gen_imgs])  # from (-1, 1) to (0, 1)
 
         if is_blend is True:
             for idx in range(tar_imgs.shape[0]):
-                outputs[idx] = poisson.blend(tar_imgs[idx], sour_imgs[idx],
-                                             ((1. - self.model.masks[idx]) * 255.).astype(np.uint8))
+                outputs[idx] = np.clip(poisson.blend(tar_imgs[idx], sour_imgs[idx],
+                                                     ((1. - self.model.masks[idx]) * 255.).astype(np.uint8)), 0, 1)
         else:
             outputs = np.multiply(tar_imgs, self.model.masks) + np.multiply(sour_imgs, 1. - self.model.masks)
 
