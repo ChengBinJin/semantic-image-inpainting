@@ -6,7 +6,7 @@ This repository is a Tensorflow implementation of the [Semantic Image Inpainting
 </p>
   
 ## Requirements
-- tensorflow 1.19.0
+- tensorflow 1.9.0
 - python 3.5.3
 - numpy 1.14.2
 - pillow 5.0.0
